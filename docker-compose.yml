@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: secscan-db
+    environment:
+      POSTGRES_USER: secscan
+      POSTGRES_PASSWORD: secscan
+      POSTGRES_DB: secscan
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secscan"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: secscan-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: secscan-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://secscan:secscan@db:5432/secscan
+      DATABASE_URL_SYNC: postgresql://secscan:secscan@db:5432/secscan
+      REDIS_URL: redis://redis:6379/0
+      STIG_SCANNER_PATH: /etc/ansible/roles/Evaluate-STIG
+    volumes:
+      - /etc/ansible/roles/Evaluate-STIG:/etc/ansible/roles/Evaluate-STIG:ro
+      - report_data:/app/reports
+      - /var/log/secscan-pro:/var/log/secscan-pro
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: secscan-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  report_data:
