@@ -24,7 +24,7 @@ export default function ScanDetails() {
       const response = await scanAPI.getFindings(scanId);
       return response.data;
     },
-    refetchInterval: (query) => (scan?.status === 'running' ? 5000 : false),
+    refetchInterval: () => (scan?.status === 'running' ? 5000 : false),
   });
 
   const handleDownloadReport = async () => {
