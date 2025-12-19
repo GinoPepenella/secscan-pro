@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.db.base import get_db
 from app.models.scan import Scan, Finding, ScanType, ScanStatus, AuthMethod, SudoMode
 from app.scanners.orchestrator import ScanOrchestrator
+from app.core.encryption import encryption_manager
 from datetime import datetime
 
 router = APIRouter()
@@ -20,9 +21,28 @@ class ScanCreate(BaseModel):
     ssh_username: Optional[str] = None
     ssh_port: int = 22
     sudo_mode: SudoMode = SudoMode.SUDO
+
+    # SSH Credentials (will be encrypted before storage)
+    ssh_password: Optional[str] = None
+    ssh_private_key_content: Optional[str] = None
+    ssh_private_key_path: Optional[str] = None
+    ssh_key_passphrase: Optional[str] = None
+
+    # Scan configuration
     config_files: Optional[List[str]] = None
     stig_profiles: Optional[List[str]] = None
     include_cves: bool = True
+
+    # SCC Configuration
+    scc_profiles: Optional[List[str]] = None
+    scc_auto_detect: bool = True
+
+    # Antivirus Configuration
+    av_scan_paths: Optional[List[str]] = None
+    av_full_scan: bool = False
+    av_use_clamav: bool = True
+    av_use_yara: bool = True
+    av_yara_rules_path: Optional[str] = None
 
 
 class ScanResponse(BaseModel):
@@ -68,6 +88,11 @@ async def create_scan(
     db: AsyncSession = Depends(get_db)
 ):
     """Create and start a new security scan."""
+    # Encrypt sensitive SSH credentials before storage
+    encrypted_password = encryption_manager.encrypt_optional(scan_data.ssh_password)
+    encrypted_key_content = encryption_manager.encrypt_optional(scan_data.ssh_private_key_content)
+    encrypted_passphrase = encryption_manager.encrypt_optional(scan_data.ssh_key_passphrase)
+
     # Create scan record
     scan = Scan(
         name=scan_data.name,
@@ -78,9 +103,24 @@ async def create_scan(
         ssh_username=scan_data.ssh_username,
         ssh_port=scan_data.ssh_port,
         sudo_mode=scan_data.sudo_mode,
+        # Encrypted SSH credentials
+        ssh_password=encrypted_password,
+        ssh_private_key_content=encrypted_key_content,
+        ssh_private_key_path=scan_data.ssh_private_key_path,
+        ssh_key_passphrase=encrypted_passphrase,
+        # Scan configuration
         config_files=scan_data.config_files,
         stig_profiles=scan_data.stig_profiles,
         include_cves=scan_data.include_cves,
+        # SCC configuration
+        scc_profiles=scan_data.scc_profiles,
+        scc_auto_detect=scan_data.scc_auto_detect,
+        # Antivirus configuration
+        av_scan_paths=scan_data.av_scan_paths,
+        av_full_scan=scan_data.av_full_scan,
+        av_use_clamav=scan_data.av_use_clamav,
+        av_use_yara=scan_data.av_use_yara,
+        av_yara_rules_path=scan_data.av_yara_rules_path,
         status=ScanStatus.PENDING
     )
 
@@ -178,3 +218,46 @@ async def cancel_scan(scan_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     return {"message": "Scan cancelled"}
+
+
+@router.get("/ssh/available-keys")
+async def get_available_ssh_keys():
+    """Get list of available SSH keys from ~/.ssh/ directory."""
+    from pathlib import Path
+
+    ssh_dir = Path.home() / ".ssh"
+    keys = []
+
+    if ssh_dir.exists():
+        key_patterns = ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "id_home"]
+
+        for pattern in key_patterns:
+            key_path = ssh_dir / pattern
+            if key_path.exists() and key_path.is_file():
+                # Get file modification time
+                mtime = key_path.stat().st_mtime
+                import time
+                mtime_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
+
+                keys.append({
+                    "name": pattern,
+                    "path": str(key_path),
+                    "modified": mtime_str
+                })
+
+    return {"keys": keys}
+
+
+@router.get("/scc/available-benchmarks")
+async def get_available_scc_benchmarks():
+    """Get list of available SCC SCAP benchmarks."""
+    try:
+        from app.scanners.scc_scanner import SCCScanner
+
+        scanner = SCCScanner()
+        benchmarks = scanner.discover_available_benchmarks()
+
+        return {"benchmarks": benchmarks}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to discover SCC benchmarks: {str(e)}")

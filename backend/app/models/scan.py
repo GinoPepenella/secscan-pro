@@ -17,11 +17,16 @@ class ScanType(str, enum.Enum):
     STIG = "stig"
     VULNERABILITY = "vulnerability"
     COMBINED = "combined"
+    SCC = "scc"  # SCAP Compliance Checker
+    ANTIVIRUS = "antivirus"  # ClamAV + YARA
+    FULL = "full"  # All scan types
 
 
 class AuthMethod(str, enum.Enum):
     PASSWORD = "password"
     PUBLIC_KEY = "public_key"
+    PRIVATE_KEY_CONTENT = "private_key_content"  # Paste key content
+    LOCAL_SSH_KEYS = "local_ssh_keys"  # Use ~/.ssh/ keys
 
 
 class SudoMode(str, enum.Enum):
@@ -48,14 +53,31 @@ class Scan(Base):
     ssh_port = Column(Integer, default=22)
     sudo_mode = Column(Enum(SudoMode), default=SudoMode.SUDO)
 
+    # SSH Credentials (encrypted)
+    ssh_password = Column(Text, nullable=True)  # Encrypted password
+    ssh_private_key_content = Column(Text, nullable=True)  # Encrypted private key content
+    ssh_private_key_path = Column(String, nullable=True)  # Path to key file (e.g., ~/.ssh/id_rsa)
+    ssh_key_passphrase = Column(Text, nullable=True)  # Encrypted key passphrase if needed
+
     # Config file scanning
     config_files = Column(JSON, nullable=True)  # List of config file paths
 
     # STIG Configuration
     stig_profiles = Column(JSON, nullable=True)  # List of STIG profiles to scan
 
+    # SCC (SCAP Compliance Checker) Configuration
+    scc_profiles = Column(JSON, nullable=True)  # List of SCAP profiles to scan
+    scc_auto_detect = Column(Boolean, default=True)  # Auto-detect OS and apply appropriate STIG
+
     # Vulnerability Configuration
     include_cves = Column(Boolean, default=True)
+
+    # Antivirus Configuration
+    av_scan_paths = Column(JSON, nullable=True)  # Paths to scan with antivirus
+    av_full_scan = Column(Boolean, default=False)  # Full system scan vs targeted
+    av_use_clamav = Column(Boolean, default=True)  # Use ClamAV engine
+    av_use_yara = Column(Boolean, default=True)  # Use YARA engine
+    av_yara_rules_path = Column(String, nullable=True)  # Custom YARA rules path
 
     # Results
     total_checks = Column(Integer, default=0)

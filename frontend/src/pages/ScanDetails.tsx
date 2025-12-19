@@ -15,7 +15,7 @@ export default function ScanDetails() {
       const response = await scanAPI.get(scanId);
       return response.data;
     },
-    refetchInterval: scan?.status === 'running' ? 5000 : false,
+    refetchInterval: (query) => (query?.state?.data?.status === 'running' ? 5000 : false),
   });
 
   const { data: findings, isLoading: findingsLoading } = useQuery({
@@ -24,6 +24,7 @@ export default function ScanDetails() {
       const response = await scanAPI.getFindings(scanId);
       return response.data;
     },
+    refetchInterval: (query) => (scan?.status === 'running' ? 5000 : false),
   });
 
   const handleDownloadReport = async () => {
@@ -48,15 +49,40 @@ export default function ScanDetails() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">{scan?.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold">{scan?.name}</h1>
+            {scan?.status === 'running' && (
+              <span className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/10 text-blue-500 rounded-full text-sm font-medium">
+                <span className="animate-pulse">●</span>
+                Running...
+              </span>
+            )}
+            {scan?.status === 'completed' && (
+              <span className="inline-flex items-center gap-2 px-3 py-1 bg-green-500/10 text-green-500 rounded-full text-sm font-medium">
+                ✓ Completed
+              </span>
+            )}
+            {scan?.status === 'failed' && (
+              <span className="inline-flex items-center gap-2 px-3 py-1 bg-red-500/10 text-red-500 rounded-full text-sm font-medium">
+                ✗ Failed
+              </span>
+            )}
+            {scan?.status === 'pending' && (
+              <span className="inline-flex items-center gap-2 px-3 py-1 bg-yellow-500/10 text-yellow-500 rounded-full text-sm font-medium">
+                ⏱ Pending
+              </span>
+            )}
+          </div>
           <p className="text-muted-foreground">
             Created {scan && new Date(scan.created_at).toLocaleDateString()}
+            {scan?.status === 'running' && ' • Scan in progress, results updating every 5 seconds'}
           </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={handleDownloadReport}
-            className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-muted"
+            disabled={scan?.status === 'running'}
+            className="inline-flex items-center gap-2 px-4 py-2 border rounded-md hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="h-4 w-4" />
             Download Report

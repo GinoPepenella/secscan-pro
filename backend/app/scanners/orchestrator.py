@@ -4,6 +4,10 @@ from loguru import logger
 from app.scanners.ssh_manager import SSHManager
 from app.scanners.stig_scanner import STIGScanner
 from app.scanners.vuln_scanner import VulnerabilityScanner
+from app.scanners.scc_scanner import SCCScanner
+from app.scanners.clamav_scanner import ClamAVScanner
+from app.scanners.yara_scanner import YARAScanner
+from app.core.encryption import encryption_manager
 from app.models.scan import Scan, Finding, ScanType, ScanStatus, AuthMethod, SudoMode
 from app.db.base import AsyncSessionLocal
 from sqlalchemy import select, update
@@ -18,6 +22,9 @@ class ScanOrchestrator:
     def __init__(self):
         self.stig_scanner = STIGScanner()
         self.vuln_scanner = VulnerabilityScanner()
+        self.scc_scanner = SCCScanner()
+        self.clamav_scanner = ClamAVScanner()
+        self.yara_scanner = YARAScanner()
 
     async def execute_scan(self, scan_id: int):
         """Execute a scan and update database with results."""
@@ -127,19 +134,31 @@ class ScanOrchestrator:
         """Scan target via SSH connection."""
         findings = []
 
-        # Create SSH manager
+        # Decrypt SSH credentials
+        decrypted_password = encryption_manager.decrypt_optional(scan.ssh_password)
+        decrypted_key_content = encryption_manager.decrypt_optional(scan.ssh_private_key_content)
+        decrypted_passphrase = encryption_manager.decrypt_optional(scan.ssh_key_passphrase)
+
+        # Create SSH manager with decrypted credentials
         ssh_manager = SSHManager(
             host=target,
             username=scan.ssh_username,
-            password=None,  # TODO: Handle password storage securely
+            password=decrypted_password,
+            private_key_path=scan.ssh_private_key_path,
+            private_key_content=decrypted_key_content,
+            key_passphrase=decrypted_passphrase,
             port=scan.ssh_port,
             auth_method=scan.auth_method,
             sudo_mode=scan.sudo_mode
         )
 
         async with ssh_manager:
+            # Get OS info for auto-detection
+            os_result = await ssh_manager.execute_command("cat /etc/os-release")
+            os_info = os_result["stdout"] if os_result["success"] else ""
+
             # Run STIG scan if requested
-            if scan.scan_type in [ScanType.STIG, ScanType.COMBINED]:
+            if scan.scan_type in [ScanType.STIG, ScanType.COMBINED, ScanType.FULL]:
                 stig_results = await self.stig_scanner.scan_remote(
                     ssh_manager,
                     select_stig=scan.stig_profiles
@@ -152,13 +171,9 @@ class ScanOrchestrator:
                         findings.append(finding)
 
             # Run vulnerability scan if requested
-            if scan.scan_type in [ScanType.VULNERABILITY, ScanType.COMBINED]:
+            if scan.scan_type in [ScanType.VULNERABILITY, ScanType.COMBINED, ScanType.FULL]:
                 # Get installed packages
                 packages = await self.vuln_scanner.get_installed_packages(ssh_manager)
-
-                # Get OS info
-                os_result = await ssh_manager.execute_command("cat /etc/os-release")
-                os_info = os_result["stdout"] if os_result["success"] else ""
 
                 # Scan for vulnerabilities
                 vuln_results = await self.vuln_scanner.scan_packages(packages, os_info)
@@ -168,6 +183,74 @@ class ScanOrchestrator:
                         finding["target_host"] = target
                         finding["target_ip"] = target_ip
                         findings.append(finding)
+
+            # Run SCC scan if requested
+            if scan.scan_type in [ScanType.SCC, ScanType.FULL]:
+                # Auto-detect or use specified benchmark
+                benchmark_path = None
+                if scan.scc_auto_detect:
+                    benchmark = await self.scc_scanner.detect_os_and_select_benchmark(os_info)
+                    if benchmark:
+                        benchmark_path = benchmark["path"]
+                        logger.info(f"Auto-detected SCC benchmark: {benchmark['name']}")
+                elif scan.scc_profiles and len(scan.scc_profiles) > 0:
+                    benchmark_path = scan.scc_profiles[0]  # Use first selected benchmark
+
+                if benchmark_path:
+                    # TODO: Copy benchmark to remote host and run SCC remotely
+                    logger.warning("Remote SCC scanning not fully implemented yet")
+                    # For now, log that we would run SCC
+                    findings.append({
+                        "finding_type": "scc",
+                        "vuln_id": "SCC-PENDING",
+                        "title": "SCC Scan Pending",
+                        "description": f"SCC scan would run with benchmark: {benchmark_path}",
+                        "severity": "info",
+                        "target_host": target,
+                        "target_ip": target_ip,
+                        "status": "pending",
+                        "finding_details": "Remote SCC scanning requires additional setup",
+                        "can_auto_remediate": False
+                    })
+
+            # Run Antivirus scan if requested
+            if scan.scan_type in [ScanType.ANTIVIRUS, ScanType.FULL]:
+                # Determine scan paths
+                scan_paths = scan.av_scan_paths if scan.av_scan_paths else ["/home", "/var", "/opt"]
+
+                # ClamAV scan
+                if scan.av_use_clamav:
+                    logger.info(f"Running ClamAV scan on {target}")
+                    # TODO: Install/use ClamAV on remote host
+                    findings.append({
+                        "finding_type": "antivirus",
+                        "vuln_id": "AV-CLAMAV-PENDING",
+                        "title": "ClamAV Scan Pending",
+                        "description": f"ClamAV scan would check: {', '.join(scan_paths)}",
+                        "severity": "info",
+                        "target_host": target,
+                        "target_ip": target_ip,
+                        "status": "pending",
+                        "finding_details": "Remote ClamAV scanning requires ClamAV installed on target",
+                        "can_auto_remediate": False
+                    })
+
+                # YARA scan
+                if scan.av_use_yara:
+                    logger.info(f"Running YARA scan on {target}")
+                    # TODO: Copy YARA rules to remote host and scan
+                    findings.append({
+                        "finding_type": "yara",
+                        "vuln_id": "AV-YARA-PENDING",
+                        "title": "YARA Scan Pending",
+                        "description": f"YARA scan would check: {', '.join(scan_paths)}",
+                        "severity": "info",
+                        "target_host": target,
+                        "target_ip": target_ip,
+                        "status": "pending",
+                        "finding_details": "Remote YARA scanning requires YARA installed on target",
+                        "can_auto_remediate": False
+                    })
 
         return findings
 

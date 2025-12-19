@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { scanAPI } from '../services/api';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Activity, AlertTriangle, CheckCircle2, Shield, TrendingUp } from 'lucide-react';
+import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Activity, AlertTriangle, CheckCircle2, TrendingUp } from 'lucide-react';
 
 export default function Dashboard() {
   const { data: scans, isLoading } = useQuery({

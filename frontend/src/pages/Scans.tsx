@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { scanAPI } from '../services/api';
-import { Plus, Download, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 
 export default function Scans() {
   const { data: scans, isLoading, refetch } = useQuery({

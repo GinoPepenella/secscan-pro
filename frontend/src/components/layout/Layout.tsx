@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Shield, Moon, Sun, Activity, FileSearch, Home } from 'lucide-react';
+import { Shield, Moon, Sun, FileSearch, Home } from 'lucide-react';
 import { useTheme } from '../../lib/theme';
 
 export default function Layout() {
