@@ -1,3 +1,4 @@
+import warnings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -6,6 +7,10 @@ from app.core.logging import setup_logging
 from app.api.endpoints import scans, remediation, reports, system
 from app.db.base import async_engine, Base
 from loguru import logger
+
+# Suppress cryptography deprecation warnings from asyncssh
+# These are being addressed by pinning cryptography < 48.0.0
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="asyncssh")
 
 
 # Setup logging
